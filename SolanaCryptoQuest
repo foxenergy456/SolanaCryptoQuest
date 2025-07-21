@@ -1,0 +1,320 @@
+use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount};
+
+declare_id!("YourProgramIdHere");
+
+#[program]
+pub mod solana_crypto_quest {
+    use super::*;
+
+    #[account]
+    pub struct Player {
+        pub owner: Pubkey,
+        pub nft_mint: Pubkey,
+        pub attributes: String, // JSON string: e.g., {"horn_type": "curved", "strength": 50}
+        pub ore_balance: u64,
+    }
+
+    pub fn mint_nft(ctx: Context<MintNFT>, attributes: String) -> Result<()> {
+        let player = &mut ctx.accounts.player;
+        player.owner = *ctx.accounts.user.key;
+        player.nft_mint = ctx.accounts.mint.key();
+        player.attributes = attributes;
+        player.ore_balance = 0;
+
+        token::mint_to(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::MintTo {
+                    mint: ctx.accounts.mint.to_account_info(),
+                    to: ctx.accounts.user_token_account.to_account_info(),
+                    authority: ctx.accounts.mint_authority.to_account_info(),
+                },
+            ),
+            1,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn earn_ore(ctx: Context<EarnORE>, amount: u64) -> Result<()> {
+        let player = &mut ctx.accounts.player;
+        require!(player.owner == *ctx.accounts.user.key, ErrorCode::Unauthorized);
+        player.ore_balance += amount;
+        Ok(())
+    }
+
+    pub fn transfer_nft(ctx: Context<TransferNFT>, chain: String) -> Result<()> {
+        let player = &mut ctx.accounts.player;
+        require!(player.owner == *ctx.accounts.user.key, ErrorCode::Unauthorized);
+
+        // Cross-chain transfer via Wormhole (mock)
+        if chain != "Solana" {
+            msg!("Bridging NFT to {}", chain);
+        }
+
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                token::Transfer {
+                    from: ctx.accounts.user_token_account.to_account_info(),
+                    to: ctx.accounts.recipient_token_account.to_account_info(),
+                    authority: ctx.accounts.user.to_account_info(),
+                },
+            ),
+            1,
+        )?;
+
+        player.owner = *ctx.accounts.recipient.key;
+        Ok(())
+    }
+}
+
+#[derive(Accounts)]
+pub struct MintNFT<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub player: Account<'info, Player>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    #[account(mut)]
+    pub mint_authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct EarnORE<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub player: Account<'info, Player>,
+}
+
+#[derive(Accounts)]
+pub struct TransferNFT<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub recipient: AccountInfo<'info>,
+    #[account(mut)]
+    pub user_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub recipient_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub player: Account<'info, Player>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[error_code]
+pub enum ErrorCode {
+    #[msg("User is not authorized")]
+    Unauthorized,
+}
+
+
+Backend: Python FastAPIHandles AI gameplay optimization and ORE mining.
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+import requests
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from datetime import datetime
+
+app = FastAPI()
+
+class PlayerData(BaseModel):
+    player_id: str
+    win_rate: float
+    play_time: float  # Hours
+    nfts_owned: int
+
+# Fetch prices
+def get_prices():
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=solana,ore&vs_currencies=usd"
+        response = requests.get(url).json()
+        return {"sol": response["solana"]["usd"], "ore": response.get("ore", {}).get("usd", 0)}
+    except:
+        return {"sol": 0, "ore": 0}
+
+# Fetch energy price (mock)
+def get_energy_price():
+    return 0.12  # $0.12/kWh (replace with WattTime API)
+
+# Train AI model for gameplay difficulty
+def train_difficulty_model():
+    data = {
+        "win_rate": [0.8, 0.6, 0.4, 0.9],
+        "play_time": [10, 5, 2, 15],
+        "nfts_owned": [5, 3, 1, 7],
+        "difficulty": ["hard", "medium", "easy", "hard"]
+    }
+    df = pd.DataFrame(data)
+    X = df[["win_rate", "play_time", "nfts_owned"]]
+    y = df["difficulty"]
+    
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    return model
+
+# Optimize ORE mining (mock)
+def optimize_ore_mining(energy_cost):
+    return {"hashrate": 1000, "ore_per_min": 0.01} if energy_cost < 0.15 else {"hashrate": 0, "ore_per_min": 0}
+
+# API endpoint for game optimization
+@app.post("/optimize-game")
+async def optimize_game(data: PlayerData):
+    prices = get_prices()
+    energy_cost = get_energy_price()
+    model = train_difficulty_model()
+    
+    # Predict difficulty
+    difficulty = model.predict(np.array([[data.win_rate, data.play_time, data.nfts_owned]]))[0]
+    
+    # Optimize ORE mining
+    mining_data = optimize_ore_mining(energy_cost)
+    
+    return {
+        "player_id": data.player_id,
+        "sol_price": prices["sol"],
+        "ore_price": prices["ore"],
+        "recommended_difficulty": difficulty,
+        "mining_status": "Active" if mining_data["hashrate"] > 0 else "Paused (High Energy Cost)",
+        "ore_per_min": mining_data["ore_per_min"],
+        "energy_cost": energy_cost,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+Frontend: Unity (C#) + FlutterUnity: Handles RPG gameplay (battles, quests).
+
+using UnityEngine;
+using System.Collections;
+
+public class EnemyAI : MonoBehaviour
+{
+    public float strength = 50f;
+    private string difficulty = "medium";
+
+    void Start()
+    {
+        StartCoroutine(FetchDifficulty());
+    }
+
+    void Update()
+    {
+        // Adjust enemy strength based on AI difficulty
+        if (difficulty == "hard") strength = 75f;
+        else if (difficulty == "easy") strength = 25f;
+        // Battle logic (simplified)
+        transform.Translate(Vector3.forward * Time.deltaTime);
+    }
+
+    private IEnumerator FetchDifficulty()
+    {
+        // Mock API call to FastAPI
+        yield return new WaitForSeconds(1);
+        difficulty = "medium"; // Update from /optimize-game endpoint
+    }
+}
+
+
+Flutter: Displays dashboard for game stats and NFT management.
+
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
+void main() => runApp(SolanaCryptoQuestApp());
+
+class SolanaCryptoQuestApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'SolanaCryptoQuest',
+      theme: ThemeData(primarySwatch: Colors.green),
+      home: GameDashboard(),
+    );
+  }
+}
+
+class GameDashboard extends StatefulWidget {
+  @override
+  _GameDashboardState createState() => _GameDashboardState();
+}
+
+class _GameDashboardState extends State<GameDashboard> {
+  Map<String, dynamic>? data;
+
+  Future<void> fetchData() async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://your-backend-ip:8000/optimize-game'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'player_id': 'user123',
+          'win_rate': 0.7,
+          'play_time': 10.0,
+          'nfts_owned': 5
+        }),
+      );
+      if (response.statusCode == 200) {
+        setState(() {
+          data = jsonDecode(response.body);
+        });
+      }
+    } catch (e) {
+      print('Error: $e');
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    fetchData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('SolanaCryptoQuest')),
+      body: data == null
+          ? Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Text('SOL Price: \$${data!['sol_price']}',
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  Text('ORE Price: \$${data!['ore_price']}'),
+                  Text('Difficulty: ${data!['recommended_difficulty'].toUpperCase()}'),
+                  Text('ORE Mining: ${data!['mining_status']}'),
+                  Text('ORE per Minute: ${data!['ore_per_min'].toStringAsFixed(4)}'),
+                  Text('Energy Cost: \$${data!['energy_cost'].toStringAsFixed(2)}/kWh'),
+                  SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: fetchData,
+                    child: Text('Refresh'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      // Launch Unity game
+                      print('Starting game...');
+                    },
+                    child: Text('Play Game'),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+
