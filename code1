@@ -1,0 +1,17 @@
+     ElevatedButton(
+                    onPressed: fetchData,
+                    child: Text('Refresh'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      // Launch Unity game
+                      print('Starting game...');
+                    },
+                    child: Text('Play Game'),
+                  ),
+                ],
+              ),
+            ),
+    );
+  }
+}
