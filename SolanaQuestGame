@@ -1,0 +1,248 @@
+import tkinter as tk
+from tkinter import messagebox, ttk
+import sqlite3
+from datetime import datetime
+import pytz
+import pygame
+import random
+import csv
+from cryptography.fernet import Fernet
+import os
+
+class SolanaQuestApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Solana Quest Game")
+        self.root.geometry("600x700")
+
+        # Initialize Pygame for sound
+        pygame.mixer.init()
+
+        # Initialize encryption
+        self.key_file = "key.key"
+        self.cipher = self.load_or_generate_key()
+
+        # Initialize SQLite database
+        self.conn = sqlite3.connect("solana_quest.db")
+        self.create_tables()
+
+        # Timezone (UTC+03:00)
+        self.timezone = pytz.timezone("Asia/Riyadh")
+
+        # Player variables
+        self.player_sol = 0.0
+        self.player_nfts = 0
+
+        # GUI Elements
+        self.theme = "dark"
+        self.root.configure(bg="#2C2C2C" if self.theme == "dark" else "#FFFFFF")
+
+        # Player stats
+        self.stats_var = tk.StringVar(value="SOL: 0.00 | NFTs: 0")
+        tk.Label(root, textvariable=self.stats_var, font=("Arial", 16, "bold"), fg="white" if self.theme == "dark" else "black", bg="#2C2C2C" if self.theme == "dark" else "#FFFFFF").pack(pady=10)
+
+        # Theme selection
+        tk.Label(root, text="Select Theme:", font=("Arial", 12), fg="white" if self.theme == "dark" else "black", bg="#2C2C2C" if self.theme == "dark" else "#FFFFFF").pack()
+        self.theme_var = tk.StringVar(value="Dark")
+        ttk.Combobox(root, textvariable=self.theme_var, values=["Dark", "Light"], state="readonly").pack()
+        self.theme_var.trace("w", self.update_theme)
+
+        # Quest selection
+        tk.Label(root, text="Select Quest:", font=("Arial", 12), fg="white" if self.theme == "dark" else "black", bg="#2C2C2C" if self.theme == "dark" else "#FFFFFF").pack(pady=5)
+        self.quests = ["Collect 10 Resources", "Defeat Enemy", "Build Base", "Trade in Marketplace"]
+        self.quest_var = tk.StringVar()
+        self.quest_combobox = ttk.Combobox(root, textvariable=self.quest_var, values=self.quests, state="readonly")
+        self.quest_combobox.pack(pady=5)
+        if self.quests:
+            self.quest_var.set(self.quests[0])
+
+        # Buttons
+        tk.Button(root, text="Complete Quest", command=self.complete_quest, font=("Arial", 12)).pack(pady=5)
+        tk.Button(root, text="Trade NFT", command=self.trade_nft, font=("Arial", 12)).pack(pady=5)
+        tk.Button(root, text="View Quest History", command=self.view_quests, font=("Arial", 12)).pack(pady=5)
+        tk.Button(root, text="View Statistics", command=self.view_statistics, font=("Arial", 12)).pack(pady=5)
+        tk.Button(root, text="Export to CSV", command=self.export_to_csv, font=("Arial", 12)).pack(pady=5)
+
+        # Update stats
+        self.update_stats()
+
+    def load_or_generate_key(self):
+        if os.path.exists(self.key_file):
+            with open(self.key_file, "rb") as key_file:
+                key = key_file.read()
+        else:
+            key = Fernet.generate_key()
+            with open(self.key_file, "wb") as key_file:
+                key_file.write(key)
+        return Fernet(key)
+
+    def create_tables(self):
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                quest_name TEXT NOT NULL,
+                sol_reward REAL NOT NULL,
+                nft_reward INTEGER NOT NULL
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS nfts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                quest_id INTEGER NOT NULL,
+                nft_name TEXT NOT NULL,
+                FOREIGN KEY (quest_id) REFERENCES quests(id)
+            )
+        ''')
+        self.conn.commit()
+
+    def visual_feedback(self, success=True):
+        color = "green" if success else "red"
+        for _ in range(3):
+            self.root.configure(bg=color)
+            self.stats_var.set("SUCCESS!" if success else "ERROR!")
+            self.root.update()
+            self.root.after(100)
+            self.root.configure(bg="#2C2C2C" if self.theme == "dark" else "#FFFFFF")
+            self.update_stats()
+            self.root.update()
+            self.root.after(100)
+
+    def play_sound(self, action="quest"):
+        try:
+            sound_file = {"quest": "quest.wav", "reward": "reward.wav"}[action]
+            pygame.mixer.Sound(sound_file).play()
+        except:
+            pass  # Skip sound if file not found
+
+    def update_theme(self, *args):
+        self.theme = self.theme_var.get().lower()
+        bg_color = "#2C2C2C" if self.theme == "dark" else "#FFFFFF"
+        fg_color = "white" if self.theme == "dark" else "black"
+        self.root.configure(bg=bg_color)
+        for widget in self.root.winfo_children():
+            if isinstance(widget, tk.Label):
+                widget.configure(bg=bg_color, fg=fg_color)
+
+    def update_stats(self):
+        self.stats_var.set(f"SOL: {self.player_sol:.2f} | NFTs: {self.player_nfts}")
+
+    def complete_quest(self):
+        quest_name = self.quest_var.get()
+        if not quest_name:
+            messagebox.showerror("Error", "Select a quest!")
+            self.visual_feedback(success=False)
+            return
+
+        # Simulate quest rewards
+        sol_reward = random.uniform(0.1, 1.0)  # Random SOL between 0.1 and 1
+        nft_reward = random.randint(0, 1)  # 0 or 1 NFT
+        timestamp = datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Save quest to database
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT INTO quests (timestamp, quest_name, sol_reward, nft_reward) VALUES (?, ?, ?, ?)",
+                      (timestamp, quest_name, sol_reward, nft_reward))
+        quest_id = cursor.lastrowid
+        self.conn.commit()
+
+        # Save NFT if awarded
+        if nft_reward:
+            nft_name = f"NFT-{quest_name}-{quest_id}"
+            encrypted_nft = self.cipher.encrypt(nft_name.encode()).decode()
+            cursor.execute("INSERT INTO nfts (quest_id, nft_name) VALUES (?, ?)", (quest_id, encrypted_nft))
+            self.conn.commit()
+
+        self.player_sol += sol_reward
+        self.player_nfts += nft_reward
+        self.update_stats()
+        messagebox.showinfo("Success", f"Quest '{quest_name}' completed!\nEarned: {sol_reward:.2f} SOL, {nft_reward} NFT(s)")
+        self.visual_feedback(success=True)
+        self.play_sound("quest")
+
+        # Simulate raffle for bonus rewards (inspired by Solana Game Pass)
+        if random.random() < 0.2:  # 20% chance for bonus
+            bonus_sol = random.uniform(0.5, 2.0)
+            self.player_sol += bonus_sol
+            self.update_stats()
+            messagebox.showinfo("Raffle Win!", f"Congratulations! You won a bonus {bonus_sol:.2f} SOL in the raffle!")
+            self.visual_feedback(success=True)
+            self.play_sound("reward")
+
+    def trade_nft(self):
+        if self.player_nfts == 0:
+            messagebox.showerror("Error", "No NFTs to trade!")
+            self.visual_feedback(success=False)
+            return
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, nft_name FROM nfts LIMIT 1")
+        nft = cursor.fetchone()
+        if nft:
+            # Simulate trading NFT for SOL
+            sol_earned = random.uniform(0.5, 2.0)
+            self.player_sol += sol_earned
+            self.player_nfts -= 1
+            cursor.execute("DELETE FROM nfts WHERE id = ?", (nft[0],))
+            self.conn.commit()
+            self.update_stats()
+            try:
+                nft_name = self.cipher.decrypt(nft[1].encode()).decode()
+            except:
+                nft_name = "Unknown NFT"
+            messagebox.showinfo("Success", f"Traded {nft_name} for {sol_earned:.2f} SOL!")
+            self.visual_feedback(success=True)
+            self.play_sound("reward")
+        else:
+            messagebox.showerror("Error", "No NFTs available!")
+            self.visual_feedback(success=False)
+
+    def view_quests(self):
+        window = tk.Toplevel(self.root)
+        window.title("Quest History")
+        window.geometry("600x400")
+        tree = ttk.Treeview(window, columns=("ID", "Timestamp", "Quest", "SOL", "NFTs"), show="headings")
+        tree.heading("ID", text="ID")
+        tree.heading("Timestamp", text="Timestamp")
+        tree.heading("Quest", text="Quest")
+        tree.heading("SOL", text="SOL Reward")
+        tree.heading("NFTs", text="NFTs")
+        tree.column("ID", width=50)
+        tree.column("Timestamp", width=150)
+        tree.column("Quest", width=150)
+        tree.column("SOL", width=100)
+        tree.column("NFTs", width=100)
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, timestamp, quest_name, sol_reward, nft_reward FROM quests")
+        for row in cursor.fetchall():
+            tree.insert("", tk.END, values=(row[0], row[1], row[2], f"{row[3]:.2f}", row[4]))
+
+    def view_statistics(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*), SUM(sol_reward), SUM(nft_reward) FROM quests")
+        stats = cursor.fetchone()
+        if stats[0] == 0:
+            messagebox.showinfo("Statistics", "No quests completed!")
+            return
+        messagebox.showinfo("Statistics", f"Quests Completed: {stats[0]}\nTotal SOL Earned: {stats[1]:.2f}\nTotal NFTs Earned: {stats[2]}")
+        self.visual_feedback(success=True)
+
+    def export_to_csv(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, timestamp, quest_name, sol_reward, nft_reward FROM quests")
+        with open("solana_quest_history.csv", "w", newline="") as file:
+            writer = csv.writer(file)
+            writer.writerow(["ID", "Timestamp", "Quest", "SOL Reward", "NFTs"])
+            writer.writerows(cursor.fetchall())
+        messagebox.showinfo("Success", "Quest history exported to solana_quest_history.csv!")
+        self.visual_feedback(success=True)
+        self.play_sound("reward")
+
+    def __del__(self):
+        self.conn.close()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SolanaQuestApp(root)
+    root.mainloop()
